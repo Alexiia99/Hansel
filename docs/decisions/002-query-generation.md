@@ -1,7 +1,7 @@
 # ADR 002: LLM-generated diverse search queries from CV profile
 
 **Status:** Accepted  
-**Date:** 2025-11-XX
+**Date:** 2026 - 04 - 20
 
 ## Context
 
