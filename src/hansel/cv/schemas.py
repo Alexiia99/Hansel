@@ -1,6 +1,26 @@
 """Pydantic schemas for CV data."""
 
+from enum import Enum
+
 from pydantic import BaseModel, Field
+
+
+class Seniority(str, Enum):
+    """Career seniority level, provided by the user."""
+    JUNIOR = "junior"
+    MID = "mid"
+    SENIOR = "senior"
+    LEAD = "lead"
+    
+    @property
+    def label(self) -> str:
+        """Human-readable label used in prompts and search queries."""
+        return {
+            Seniority.JUNIOR: "Junior",
+            Seniority.MID: "Mid-level",
+            Seniority.SENIOR: "Senior",
+            Seniority.LEAD: "Lead/Staff",
+        }[self]
 
 
 class Experience(BaseModel):
@@ -42,8 +62,8 @@ class CVProfileSemantic(BaseModel):
     education: list[Education]
     target_roles: list[str] = Field(
         description=(
-            "3-5 specific Junior-level job titles this person should apply to. "
-            "EVERY role MUST start with 'Junior'. Base them on actual skills and experience."
+            "3-5 specific job titles this person should apply to, matching the requested "
+            "seniority level. Base them on actual skills and experience."
         )
     )
 
@@ -64,3 +84,5 @@ class CVProfile(BaseModel):
     experiences: list[Experience]
     education: list[Education]
     target_roles: list[str]
+    # User-provided context (not extracted)
+    seniority: Seniority | None = None

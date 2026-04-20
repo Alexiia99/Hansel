@@ -9,7 +9,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_ollama import ChatOllama
 
 from hansel.cv.regex_parser import extract_contact
-from hansel.cv.schemas import CVProfile, CVProfileSemantic, Experience
+from hansel.cv.schemas import CVProfile, CVProfileSemantic, Experience, Seniority
 
 
 _EXTRACTION_PROMPT = ChatPromptTemplate.from_messages([
@@ -17,7 +17,9 @@ _EXTRACTION_PROMPT = ChatPromptTemplate.from_messages([
 
 CRITICAL RULES:
 1. Only extract info explicitly in the CV, EXCEPT 'target_roles' (you MUST infer).
-2. 'target_roles': return EXACTLY 3-5 roles. EVERY role starts with 'Junior'. Be specific.
+2. 'target_roles': return EXACTLY 3-5 roles. EVERY role MUST start with '{seniority_label}'. Be specific based on actual skills.
+   Examples for Junior level: 'Junior Data Engineer', 'Junior Python Developer', 'Junior Backend Developer'.
+   Examples for Senior level: 'Senior ML Engineer', 'Senior Backend Engineer'.
 3. 'skills': extract EVERY technology, framework, language, tool, database, platform mentioned ANYWHERE.
    - Look in the skills section AND in experience descriptions.
    - Common misses: SQL, JavaScript, REST APIs, Flask, pytest. Don't miss them.
@@ -52,14 +54,11 @@ def load_cv_text(path: str | Path) -> str:
     
     raise ValueError(f"Unsupported CV format: {suffix}. Use .pdf, .md, or .txt")
 
+
 def _post_process_experiences(
     experiences: list[Experience], cv_text: str
 ) -> list[Experience]:
-    """Fix end_date=null when CV clearly indicates ongoing role.
-    
-    Uses start_date as a more reliable anchor than role/company names
-    (which may appear multiple times or be renamed by the LLM).
-    """
+    """Fix end_date=null when CV clearly indicates ongoing role."""
     cv_lower = cv_text.lower()
     fixed: list[Experience] = []
     
@@ -67,7 +66,6 @@ def _post_process_experiences(
         if exp.end_date is None and exp.start_date:
             anchor = _find_experience_anchor(cv_lower, exp)
             if anchor != -1:
-                # Look at the next 100 chars (dates usually follow immediately)
                 window = cv_lower[anchor : anchor + 100]
                 if any(kw in window for kw in _ONGOING_KEYWORDS):
                     exp = exp.model_copy(update={"end_date": "current"})
@@ -77,12 +75,7 @@ def _post_process_experiences(
 
 
 def _find_experience_anchor(cv_lower: str, exp: Experience) -> int:
-    """Find position in CV where this experience's date range appears.
-    
-    Tries multiple strategies: month name, YYYY-MM, full year.
-    Returns -1 if no anchor found.
-    """
-    # Strategy 1: English month name ("March 2024")
+    """Find position in CV where this experience's date range appears."""
     months_en = {
         "01": "january", "02": "february", "03": "march", "04": "april",
         "05": "may", "06": "june", "07": "july", "08": "august",
@@ -94,13 +87,11 @@ def _find_experience_anchor(cv_lower: str, exp: Experience) -> int:
         "09": "septiembre", "10": "octubre", "11": "noviembre", "12": "diciembre",
     }
     
-    # Parse YYYY-MM if possible
     if "-" in exp.start_date:
         year, _, month = exp.start_date.partition("-")
         month_name_en = months_en.get(month.zfill(2), "")
         month_name_es = months_es.get(month.zfill(2), "")
         
-        # Try "March 2024", "Marzo 2024", "marzo de 2024"
         for phrase in [
             f"{month_name_en} {year}",
             f"{month_name_es} {year}",
@@ -109,7 +100,6 @@ def _find_experience_anchor(cv_lower: str, exp: Experience) -> int:
             if phrase and phrase in cv_lower:
                 return cv_lower.find(phrase)
     
-    # Strategy 2: just the year
     year = exp.start_date.split("-")[0]
     if year in cv_lower:
         return cv_lower.find(year)
@@ -124,16 +114,22 @@ class CVExtractor:
         self.llm = ChatOllama(model=model, temperature=temperature)
         self._chain = _EXTRACTION_PROMPT | self.llm.with_structured_output(CVProfileSemantic)
     
-    def extract(self, cv_text: str) -> CVProfile:
+    def extract(self, cv_text: str, seniority: Seniority = Seniority.JUNIOR) -> CVProfile:
         """Extract full profile from CV text.
         
-        Pipeline:
-          1. regex for deterministic fields (email, phone, linkedin, github)
-          2. LLM for semantic fields (summary, skills, experiences, etc.)
-          3. post-processing to patch common LLM mistakes (end_date)
+        Args:
+            cv_text: Raw text of the CV.
+            seniority: Target seniority level for generated target_roles.
+                       Defaults to Junior.
+        
+        Returns:
+            Complete CVProfile with contact, semantic data, and user-provided seniority.
         """
         contact = extract_contact(cv_text)
-        semantic: CVProfileSemantic = self._chain.invoke({"cv_text": cv_text})
+        semantic: CVProfileSemantic = self._chain.invoke({
+            "cv_text": cv_text,
+            "seniority_label": seniority.label,
+        })
         experiences = _post_process_experiences(semantic.experiences, cv_text)
         
         return CVProfile(
@@ -149,8 +145,11 @@ class CVExtractor:
             experiences=experiences,
             education=semantic.education,
             target_roles=semantic.target_roles,
+            seniority=seniority,
         )
     
-    def extract_from_file(self, path: str | Path) -> CVProfile:
+    def extract_from_file(
+        self, path: str | Path, seniority: Seniority = Seniority.JUNIOR
+    ) -> CVProfile:
         """Extract profile from a CV file (PDF, Markdown, or plain text)."""
-        return self.extract(load_cv_text(path))
+        return self.extract(load_cv_text(path), seniority=seniority)

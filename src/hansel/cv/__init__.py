@@ -2,7 +2,13 @@
 
 from hansel.cv.extractor import CVExtractor, load_cv_text
 from hansel.cv.regex_parser import ContactInfo, extract_contact
-from hansel.cv.schemas import CVProfile, CVProfileSemantic, Education, Experience
+from hansel.cv.schemas import (
+    CVProfile,
+    CVProfileSemantic,
+    Education,
+    Experience,
+    Seniority,
+)
 
 __all__ = [
     "CVExtractor",
@@ -11,6 +17,7 @@ __all__ = [
     "ContactInfo",
     "Education",
     "Experience",
+    "Seniority",
     "extract_contact",
     "load_cv_text",
 ]
