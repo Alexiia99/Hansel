@@ -52,26 +52,69 @@ def load_cv_text(path: str | Path) -> str:
     
     raise ValueError(f"Unsupported CV format: {suffix}. Use .pdf, .md, or .txt")
 
-
 def _post_process_experiences(
     experiences: list[Experience], cv_text: str
 ) -> list[Experience]:
-    """Fix end_date=null when CV clearly indicates ongoing role."""
+    """Fix end_date=null when CV clearly indicates ongoing role.
+    
+    Uses start_date as a more reliable anchor than role/company names
+    (which may appear multiple times or be renamed by the LLM).
+    """
     cv_lower = cv_text.lower()
     fixed: list[Experience] = []
     
     for exp in experiences:
-        if exp.end_date is None:
-            anchor = cv_lower.find(exp.role.lower())
-            if anchor == -1:
-                anchor = cv_lower.find(exp.company.lower())
+        if exp.end_date is None and exp.start_date:
+            anchor = _find_experience_anchor(cv_lower, exp)
             if anchor != -1:
-                window = cv_lower[anchor : anchor + 200]
+                # Look at the next 100 chars (dates usually follow immediately)
+                window = cv_lower[anchor : anchor + 100]
                 if any(kw in window for kw in _ONGOING_KEYWORDS):
                     exp = exp.model_copy(update={"end_date": "current"})
         fixed.append(exp)
     
     return fixed
+
+
+def _find_experience_anchor(cv_lower: str, exp: Experience) -> int:
+    """Find position in CV where this experience's date range appears.
+    
+    Tries multiple strategies: month name, YYYY-MM, full year.
+    Returns -1 if no anchor found.
+    """
+    # Strategy 1: English month name ("March 2024")
+    months_en = {
+        "01": "january", "02": "february", "03": "march", "04": "april",
+        "05": "may", "06": "june", "07": "july", "08": "august",
+        "09": "september", "10": "october", "11": "november", "12": "december",
+    }
+    months_es = {
+        "01": "enero", "02": "febrero", "03": "marzo", "04": "abril",
+        "05": "mayo", "06": "junio", "07": "julio", "08": "agosto",
+        "09": "septiembre", "10": "octubre", "11": "noviembre", "12": "diciembre",
+    }
+    
+    # Parse YYYY-MM if possible
+    if "-" in exp.start_date:
+        year, _, month = exp.start_date.partition("-")
+        month_name_en = months_en.get(month.zfill(2), "")
+        month_name_es = months_es.get(month.zfill(2), "")
+        
+        # Try "March 2024", "Marzo 2024", "marzo de 2024"
+        for phrase in [
+            f"{month_name_en} {year}",
+            f"{month_name_es} {year}",
+            f"{month_name_es} de {year}",
+        ]:
+            if phrase and phrase in cv_lower:
+                return cv_lower.find(phrase)
+    
+    # Strategy 2: just the year
+    year = exp.start_date.split("-")[0]
+    if year in cv_lower:
+        return cv_lower.find(year)
+    
+    return -1
 
 
 class CVExtractor:
