@@ -16,6 +16,7 @@ from bs4 import BeautifulSoup
 
 from hansel.sources.base import JobSourceAdapter
 from hansel.sources.schemas import JobListing, JobSource
+from hansel.sources.resilience import AsyncTTLCache, RateLimiter
 
 logger = logging.getLogger(__name__)
 
@@ -96,11 +97,14 @@ def _parse_listing(item: dict[str, Any]) -> JobListing | None:
 class ArbeitnowAdapter(JobSourceAdapter):
     """Adapter for Arbeitnow's public job board API.
     
-    No authentication required. Returns the full daily feed; we filter
-    client-side by keywords and location.
+    No authentication required. Client-side filtering on a global feed.
     """
     
     name = "Arbeitnow"
+    
+    # Class-level: one rate limiter and cache shared across all instances
+    _rate_limiter = RateLimiter(min_interval=0.5)
+    _cache = AsyncTTLCache(maxsize=128, ttl_seconds=300)
     
     def __init__(self, timeout: float = _DEFAULT_TIMEOUT) -> None:
         self._timeout = timeout
@@ -111,7 +115,20 @@ class ArbeitnowAdapter(JobSourceAdapter):
         location: str | None = None,
         limit: int = 20,
     ) -> list[JobListing]:
-        """Fetch the Arbeitnow feed and filter client-side."""
+        import hashlib
+        key = hashlib.sha1(
+            f"{keywords}|{location or ''}|{limit}".encode()
+        ).hexdigest()[:16]
+        
+        async def _fetch() -> list[JobListing]:
+            async with self._rate_limiter:
+                return await self._fetch_feed(keywords, location, limit)
+        
+        return await self._cache.get_or_compute(key, _fetch)
+    
+    async def _fetch_feed(
+        self, keywords: str, location: str | None, limit: int
+    ) -> list[JobListing]:
         try:
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 response = await client.get(_API_URL)
@@ -127,14 +144,12 @@ class ArbeitnowAdapter(JobSourceAdapter):
         raw_items = payload.get("data", [])
         logger.info("Arbeitnow returned %d raw items", len(raw_items))
         
-        # Client-side filter + parse
         matched: list[JobListing] = []
         for item in raw_items:
             if not _matches_keywords(item, keywords):
                 continue
             if not _matches_location(item, location):
                 continue
-            
             listing = _parse_listing(item)
             if listing is not None:
                 matched.append(listing)
