@@ -22,6 +22,16 @@ _DEFAULT_TIMEOUT = 15.0
 # Adzuna free tier: stay well below their rate limit
 _MIN_INTERVAL = 1.2  # seconds between consecutive calls
 
+# Country names the `/{country}/` endpoint already filters for.
+# Passing these as `where=` does strict substring matching that kills recall.
+_COUNTRY_NAMES_IMPLICIT = {
+    "switzerland", "schweiz", "suisse", "svizzera",
+    "germany", "deutschland", "allemagne",
+    "austria", "österreich",
+    "france",
+    "united kingdom", "uk",
+}
+
 
 def _parse_created(raw: str | None) -> datetime | None:
     if not raw:
@@ -117,17 +127,27 @@ class AdzunaAdapter(JobSourceAdapter):
                 "in your .env file or pass them explicitly."
             )
     
+    
     async def search(
         self,
         keywords: str,
         location: str | None = None,
         limit: int = 20,
     ) -> list[JobListing]:
+        """Search Adzuna for jobs. Never raises; returns [] on failure."""
         key = _cache_key(keywords, location, limit, self._country)
-        
+    
         async def _fetch() -> list[JobListing]:
-            return await self._fetch_with_retry(keywords, location, limit)
-        
+            try:
+                return await self._fetch_with_retry(keywords, location, limit)
+            except httpx.HTTPError as e:
+                logger.error("Adzuna request failed after retries: %s", e)
+                return []
+            except ValueError as e:
+                # JSON decode errors or Pydantic validation issues
+                logger.error("Adzuna response parsing failed: %s", e)
+                return []
+    
         return await self._cache.get_or_compute(key, _fetch)
     
     async def _fetch_with_retry(
@@ -142,6 +162,27 @@ class AdzunaAdapter(JobSourceAdapter):
                 max_wait=10.0,
             )
     
+    def _build_where_param(self, location: str | None) -> str | None:
+        """Decide whether to pass `where` to Adzuna.
+        
+        Rules:
+          - None / 'remote' / 'anywhere' → no `where` (country endpoint handles it)
+          - Country names that match the endpoint → no `where` (redundant, kills recall)
+          - City/region names → pass as `where`
+        """
+        if not location:
+            return None
+        loc_lower = location.lower().strip()
+        if loc_lower in {"remote", "anywhere"}:
+            return None
+        if loc_lower in _COUNTRY_NAMES_IMPLICIT:
+            logger.debug(
+                "Dropping redundant location %r (already implicit in country endpoint)",
+                location,
+            )
+            return None
+        return location
+    
     async def _fetch_once(
         self, keywords: str, location: str | None, limit: int
     ) -> list[JobListing]:
@@ -153,8 +194,10 @@ class AdzunaAdapter(JobSourceAdapter):
             "what": keywords,
             "content-type": "application/json",
         }
-        if location and location.lower() not in {"remote", "anywhere"}:
-            params["where"] = location
+        
+        where = self._build_where_param(location)
+        if where is not None:
+            params["where"] = where
         
         url = f"{_BASE_URL}/{self._country}/search/1"
         
@@ -175,19 +218,10 @@ class AdzunaAdapter(JobSourceAdapter):
             if (parsed := _parse_listing(item)) is not None
         ]
         
-        if location and location.lower() not in {"remote", "anywhere"}:
-            # Adzuna's country endpoint already filters by country; passing the 
-            # country name (e.g., "Switzerland") as `where` does strict string 
-            # matching against the location field and kills recall.
-            # Only pass `where` for sub-country locations (cities, regions).
-            country_names_to_skip = {
-                "switzerland", "schweiz", "suisse", "svizzera",
-                "germany", "deutschland", "allemagne",
-                "austria", "österreich",
-                "france",
-                "united kingdom", "uk",
-            }
-            if location.lower().strip() not in country_names_to_skip:
-                params["where"] = location
-                
+        # If user asked for remote, filter out listings explicitly NOT remote.
+        # _infer_remote returns True or None (never False), so this keeps 
+        # listings with unknown remote status (could still be remote).
+        if location and location.strip().lower() in {"remote", "anywhere"}:
+            listings = [l for l in listings if l.is_remote is not False]
+        
         return listings
