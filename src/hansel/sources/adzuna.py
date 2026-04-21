@@ -175,11 +175,19 @@ class AdzunaAdapter(JobSourceAdapter):
             if (parsed := _parse_listing(item)) is not None
         ]
         
-        if location and location.lower() in {"remote", "anywhere"}:
-        # _infer_remote returns True/None, never False.
-        # Only filter out listings explicitly NOT remote (currently: none).
-        # Keep listings where is_remote is True OR None (unknown) to avoid losing 
-        # valid remote offers that simply don't mention 'remote' in description.
-            listings = [l for l in listings if l.is_remote is not False]
-        
+        if location and location.lower() not in {"remote", "anywhere"}:
+            # Adzuna's country endpoint already filters by country; passing the 
+            # country name (e.g., "Switzerland") as `where` does strict string 
+            # matching against the location field and kills recall.
+            # Only pass `where` for sub-country locations (cities, regions).
+            country_names_to_skip = {
+                "switzerland", "schweiz", "suisse", "svizzera",
+                "germany", "deutschland", "allemagne",
+                "austria", "österreich",
+                "france",
+                "united kingdom", "uk",
+            }
+            if location.lower().strip() not in country_names_to_skip:
+                params["where"] = location
+                
         return listings
