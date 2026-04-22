@@ -13,6 +13,7 @@ from hansel.email_gen.schemas import (
     EmailDraft,
     EmailGenerationSkipped,
     EmailLanguage,
+    FactCheckResult,
     GeneratedEmail,
 )
 from hansel.email_gen.validator import validate_email
@@ -184,21 +185,132 @@ Critique and rewrite. Only use facts present in the draft above."""),
 ])
 
 
+_FACT_CHECK_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", """You are a strict fact-checker for job application emails.
+
+Your ONLY job: verify that every proper noun and specific claim in the email 
+is supported by either the CANDIDATE PROFILE or the JOB DESCRIPTION provided.
+
+Specifically, flag any of these as fabrications:
+- Company names NOT in the candidate's experience AND NOT the target company
+- Product names NOT in the job description (e.g., invented product nicknames)
+- Specific metrics/numbers NOT in the candidate's profile 
+  (e.g., '30% improvement', '10k users', '$50k saved')
+- Specific projects or features NOT in the candidate's profile
+- Posting IDs, reference numbers not provided in the source material
+
+DO NOT flag (these are NOT fabrications):
+- Common technologies mentioned in either source (Python, FastAPI, Docker, 
+  REST APIs, data pipelines, etc.)
+- The candidate's real employers (listed in experience)
+- The target company's real name (as given in the job)
+- Generic descriptions of activities that paraphrase the candidate's experience 
+  ("building data pipelines", "developing backend systems", "writing tests").
+  These describe what the candidate does based on their skills; they are NOT 
+  specific claims about specific projects.
+- Generic domain phrases ("production ML", "cloud infrastructure").
+- The candidate's own name.
+
+ONLY flag these (these ARE fabrications):
+- Specific company names that are NOT the candidate's employer AND NOT the 
+  target company.
+- Specific product names NOT mentioned in the job description 
+  (e.g., "Dial.Plus", "ProjectAlpha").
+- Specific quantified claims NOT in the candidate's profile 
+  (e.g., "reduced latency by 40%", "served 10k users").
+- Specific project names NOT in the candidate's experience descriptions.
+
+Return JSON with:
+- is_valid: true if NO fabrications found; false if ANY fabrication found
+- fabrications: list of specific problematic phrases (empty if is_valid is true)
+
+Be strict. When in doubt, flag it."""),
+    ("human", """CANDIDATE PROFILE (authoritative source):
+Name: {name}
+Skills: {skills}
+Past employers: {employers}
+Experience details: {experience_brief}
+
+JOB (authoritative source):
+Target company: {company}
+Job title: {job_title}
+Description: {description}
+
+EMAIL TO FACT-CHECK:
+Subject: {subject}
+Body: {body}
+
+Fact-check this email. Flag any claim not supported by the sources above."""),
+])
+
+
+# ---------- FactChecker class ----------
+
+
+class FactChecker:
+    """LLM-based fact-checker for generated emails.
+    
+    Catches subtle fabrications (invented product names, fake metrics) that
+    pattern-based validators miss. Third line of defense after the prompt
+    anti-hallucination rules and the regex validator.
+    """
+    
+    def __init__(
+        self,
+        model: str = "qwen2.5:7b-instruct",
+        temperature: float = 0.0,
+    ) -> None:
+        """
+        Args:
+            model: Ollama model identifier.
+            temperature: 0.0 for strict, deterministic fact-checking.
+        """
+        self._llm = ChatOllama(model=model, temperature=temperature)
+        self._chain = _FACT_CHECK_PROMPT | self._llm.with_structured_output(FactCheckResult)
+    
+    async def check(
+        self,
+        subject: str,
+        body: str,
+        profile: CVProfile,
+        listing: ScoredListing,
+    ) -> FactCheckResult:
+        """Check an email for fabricated facts. Returns structured result.
+        
+        Never raises: on LLM failure, returns a 'valid' result to avoid
+        blocking valid emails. Logged at warning level.
+        """
+        try:
+            employers = ", ".join(exp.company for exp in profile.experiences) or "None"
+            return await self._chain.ainvoke({
+                "name": profile.full_name,
+                "skills": ", ".join(profile.skills[:15]),
+                "employers": employers,
+                "experience_brief": EmailGenerator._format_experience(profile),
+                "company": listing.listing.company,
+                "job_title": listing.listing.title,
+                "description": (listing.listing.description or "")[:1200],
+                "subject": subject,
+                "body": body,
+            })
+        except Exception as e:
+            logger.warning("Fact-checker failed; treating as valid: %s", e)
+            return FactCheckResult(is_valid=True, fabrications=[])
+
+
 # ---------- Generator class ----------
 
 
 class EmailGenerator:
-    """Generates personalized application emails using a two-pass LLM pipeline.
+    """Generates personalized application emails using a three-layer pipeline.
     
     Pass 1: DRAFT — write a first version following strict anti-hallucination rules.
     Pass 2: CRITIQUE + REFINE — identify weaknesses and rewrite without new facts.
-    Post:   VALIDATE — programmatic check for placeholder/fabrication patterns.
-            Falls back to draft if critique fails validation or length constraints.
-            Returns EmailGenerationSkipped if BOTH versions fail validation.
+    Layer 3: VALIDATE — programmatic regex check for placeholder patterns, 
+             then optional LLM fact-check for subtle fabrications.
     
-    The two-pass pattern (Reflexion-style) produces noticeably better outputs
-    than single-shot generation. The validator layer is the safety net for
-    small-LLM hallucinations that prompt rules alone can't fully prevent.
+    The pipeline falls back gracefully: if the critique fails validation,
+    the draft is used; if both fail, EmailGenerationSkipped is returned.
     """
     
     def __init__(
@@ -206,19 +318,24 @@ class EmailGenerator:
         model: str = "qwen2.5:7b-instruct",
         temperature: float = 0.3,
         min_match_score: float = 0.5,
+        enable_fact_check: bool = True,
     ) -> None:
         """
         Args:
             model: Ollama model identifier.
             temperature: 0.3 gives slight variation without going off the rails.
                 Emails would be identical across runs with fully deterministic
-                (temperature=0), which looks robotic. 0.3 is the sweet spot.
+                (temperature=0), which looks robotic.
             min_match_score: Skip generation for listings below this score.
+            enable_fact_check: Run LLM fact-checker as third safety layer.
+                Adds ~30s per email but catches subtle hallucinations that
+                the regex validator misses.
         """
         self._llm = ChatOllama(model=model, temperature=temperature)
         self._draft_chain = _DRAFT_PROMPT | self._llm.with_structured_output(EmailDraft)
         self._critique_chain = _CRITIQUE_PROMPT | self._llm.with_structured_output(EmailCritique)
         self._min_match_score = min_match_score
+        self._fact_checker = FactChecker(model=model) if enable_fact_check else None
     
     async def generate(
         self,
@@ -230,7 +347,7 @@ class EmailGenerator:
         """Generate a personalized email for one scored listing.
         
         Returns:
-            GeneratedEmail if the match is good enough AND validation passes.
+            GeneratedEmail if the match is good enough AND all validations pass.
             EmailGenerationSkipped otherwise, with explanation.
         """
         # 1. Quality gate
@@ -295,7 +412,7 @@ class EmailGenerator:
             "max_words": max_words,
         })
         
-        # 5. Validate both versions against hallucinations
+        # 5. Programmatic validation of both versions
         candidate_companies = [exp.company for exp in profile.experiences]
         
         draft_validation = validate_email(
@@ -308,16 +425,12 @@ class EmailGenerator:
             candidate_companies=candidate_companies,
             subject=critique.improved_subject,
         )
-
+        
         critique_body = critique.improved_body
         critique_word_count = len(critique_body.split())
         draft_word_count = len(draft.body.split())
         
-        # Decide which version to use.
-        # Prefer critiqued ONLY if:
-        #   - it passes hallucination validation
-        #   - it respects the word bounds
-        #   - it's not drastically shorter than the draft
+        # Decide which version to use (programmatic checks).
         critique_passes = (
             critique_validation.is_valid
             and min_words <= critique_word_count <= max_words
@@ -342,7 +455,6 @@ class EmailGenerator:
                 critique_validation.issues or "none",
             )
         else:
-            # Both versions have hallucinations. This is a generation failure.
             logger.error(
                 "Both draft and critique contain hallucinations. "
                 "Draft issues: %s. Critique issues: %s",
@@ -352,12 +464,60 @@ class EmailGenerator:
             return EmailGenerationSkipped(
                 reason=(
                     "Email generation produced content that appears fabricated "
-                    "(placeholder names, unverifiable metrics). This is a known "
-                    "limitation of small local LLMs. Consider retrying or editing manually."
+                    "(placeholder names, unverifiable metrics)."
                 ),
                 match_score=scored_listing.final_score,
                 threshold=self._min_match_score,
             )
+        
+        # 6. Third safety layer: LLM fact-checker (optional)
+        if self._fact_checker is not None:
+            logger.info("Fact-checking generated email...")
+            fact_check = await self._fact_checker.check(
+                subject=final_subject,
+                body=final_body,
+                profile=profile,
+                listing=scored_listing,
+            )
+            
+            if not fact_check.is_valid:
+                logger.warning(
+                    "Fact-checker flagged fabrications: %s", fact_check.fabrications
+                )
+                # Try the draft as fallback (if we were using the critique)
+                if critique_passes and draft_validation.is_valid:
+                    logger.info("Falling back to draft and re-checking...")
+                    fallback_check = await self._fact_checker.check(
+                        subject=draft.subject,
+                        body=draft.body,
+                        profile=profile,
+                        listing=scored_listing,
+                    )
+                    if fallback_check.is_valid:
+                        final_subject = draft.subject
+                        final_body = draft.body
+                        word_count = draft_word_count
+                        logger.info("Draft passed fact-check; using it instead.")
+                    else:
+                        return EmailGenerationSkipped(
+                            reason=(
+                                "Both draft and critique contain fabricated facts "
+                                f"not supported by the CV or job description. "
+                                f"Critique issues: {fact_check.fabrications}. "
+                                f"Draft issues: {fallback_check.fabrications}."
+                            ),
+                            match_score=scored_listing.final_score,
+                            threshold=self._min_match_score,
+                        )
+                else:
+                    return EmailGenerationSkipped(
+                        reason=(
+                            f"Generated email contains fabricated facts: "
+                            f"{fact_check.fabrications}"
+                        ),
+                        match_score=scored_listing.final_score,
+                        threshold=self._min_match_score,
+                    )
         
         return GeneratedEmail(
             subject=final_subject,
