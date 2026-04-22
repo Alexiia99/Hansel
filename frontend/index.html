@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hansel — Job Search Agent</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,300&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0e0f11;
+      --surface: #16181c;
+      --border: #2a2d35;
+      --accent: #c8f060;
+      --accent-dim: #8aaa2a;
+      --text: #e8eaf0;
+      --muted: #6b7280;
+      --danger: #ff5f5f;
+      --warn: #f5a623;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-weight: 300;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--border) 1px, transparent 1px),
+        linear-gradient(90deg, var(--border) 1px, transparent 1px);
+      background-size: 48px 48px;
+      opacity: 0.25;
+      pointer-events: none;
+      z-index: 0;
+    }
+    .mono { font-family: 'DM Mono', monospace; }
+    .container {
+      position: relative;
+      z-index: 1;
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 48px 24px 96px;
+    }
+    header {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      margin-bottom: 56px;
+    }
+    .logo {
+      font-family: 'DM Mono', monospace;
+      font-size: 2rem;
+      font-weight: 500;
+      color: var(--accent);
+      letter-spacing: -0.03em;
+    }
+    .tagline {
+      font-size: 0.8rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 32px;
+      margin-bottom: 24px;
+    }
+    .card-title {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 24px;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group.full { grid-column: 1 / -1; }
+    label {
+      font-size: 0.75rem;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      letter-spacing: 0.06em;
+    }
+    input[type="text"], input[type="number"], select {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.9rem;
+      padding: 10px 12px;
+      transition: border-color 0.15s;
+      width: 100%;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
+    select option { background: var(--surface); }
+    .drop-zone {
+      border: 1px dashed var(--border);
+      border-radius: 4px;
+      padding: 28px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(200, 240, 96, 0.04);
+    }
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+    .drop-zone-text { font-size: 0.85rem; color: var(--muted); }
+    .drop-zone-text span { color: var(--accent); font-weight: 500; }
+    .drop-zone-filename {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--accent);
+      margin-top: 6px;
+    }
+    .toggle-row { display: flex; align-items: center; gap: 10px; }
+    .toggle { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
+    .toggle input { display: none; }
+    .toggle-track {
+      position: absolute;
+      inset: 0;
+      background: var(--border);
+      border-radius: 20px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle input:checked + .toggle-track { background: var(--accent); }
+    .toggle-thumb {
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 14px; height: 14px;
+      background: var(--bg);
+      border-radius: 50%;
+      transition: transform 0.2s;
+      pointer-events: none;
+    }
+    .toggle input:checked ~ .toggle-thumb { transform: translateX(16px); }
+    .toggle-label { font-size: 0.85rem; color: var(--text); }
+    .btn-run {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      margin-top: 24px;
+      padding: 14px;
+      background: var(--accent);
+      color: var(--bg);
+      border: none;
+      border-radius: 4px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.85rem;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn-run:hover { opacity: 0.9; }
+    .btn-run:active { transform: scale(0.99); }
+    .btn-run:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    /* ── Loading screen ── */
+    #loading-screen {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: var(--bg);
+      z-index: 100;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+    }
+    #loading-screen.active { display: flex; }
+
+    /* Switzerland SVG map */
+    #swiss-map {
+      width: 520px;
+      height: 340px;
+      position: relative;
+      margin-bottom: 8px;
+    }
+    #swiss-map svg { width: 100%; height: 100%; }
+    .map-dot {
+      position: absolute;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      transform: translate(-50%, -50%);
+      opacity: 0;
+      box-shadow: 0 0 8px var(--accent);
+      transition: opacity 0.4s;
+    }
+    .map-dot.visible { opacity: 1; }
+    .map-dot::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      border: 1px solid var(--accent);
+      opacity: 0.4;
+      animation: ping 1.5s ease-out infinite;
+    }
+    @keyframes ping {
+      0% { transform: scale(1); opacity: 0.4; }
+      100% { transform: scale(2.5); opacity: 0; }
+    }
+
+    .loading-step {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--accent);
+      letter-spacing: 0.08em;
+      margin-bottom: 4px;
+      min-height: 1.2em;
+    }
+    .loading-detail {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      color: var(--muted);
+      min-height: 1em;
+      margin-bottom: 32px;
+    }
+
+    /* Step pipeline indicator */
+    .step-pipeline {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 40px;
+    }
+    .step-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .step-circle {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--muted);
+      transition: all 0.3s;
+      background: var(--surface);
+    }
+    .step-circle.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      box-shadow: 0 0 12px rgba(200,240,96,0.3);
+    }
+    .step-circle.done {
+      border-color: var(--accent-dim);
+      background: rgba(200,240,96,0.1);
+      color: var(--accent);
+    }
+    .step-label {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.6rem;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .step-label.active { color: var(--accent); }
+    .step-connector {
+      width: 40px;
+      height: 1px;
+      background: var(--border);
+      margin-bottom: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+    .step-connector.active::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      animation: connflow 1.2s linear infinite;
+    }
+    @keyframes connflow {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(100%); }
+    }
+
+    /* Keyword particles canvas */
+    #particles-canvas {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 101;
+      opacity: 0;
+      transition: opacity 1s;
+    }
+    #particles-canvas.active { opacity: 1; }
+
+    /* Progress log (collapsed during loading) */
+    #progress-panel { display: none; }
+    .progress-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .progress-log {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 16px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.78rem;
+      line-height: 1.8;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+    .log-line { display: flex; gap: 12px; }
+    .log-time { color: var(--muted); flex-shrink: 0; }
+    .log-step { color: var(--accent); min-width: 140px; flex-shrink: 0; }
+    .log-msg { color: var(--text); }
+    .log-error .log-step { color: var(--danger); }
+
+    /* Results */
+    #results-panel { display: none; }
+    .results-meta {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 20px;
+    }
+    .results-meta strong { color: var(--accent); }
+    .listing {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 20px 24px;
+      margin-bottom: 12px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: start;
+      transition: border-color 0.15s;
+    }
+    .listing:hover { border-color: #3a3d45; }
+    .listing-title { font-size: 0.95rem; font-weight: 500; margin-bottom: 4px; }
+    .listing-title a { color: var(--text); text-decoration: none; }
+    .listing-title a:hover { color: var(--accent); }
+    .listing-meta { font-size: 0.8rem; color: var(--muted); margin-bottom: 8px; }
+    .listing-meta span { margin-right: 12px; }
+    .listing-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .tag {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      padding: 2px 8px;
+      background: rgba(200, 240, 96, 0.08);
+      border: 1px solid rgba(200, 240, 96, 0.2);
+      border-radius: 2px;
+      color: var(--accent-dim);
+      letter-spacing: 0.04em;
+    }
+    .listing-rationale { font-size: 0.78rem; color: var(--muted); font-style: italic; line-height: 1.5; }
+    .score-badge {
+      font-family: 'DM Mono', monospace;
+      font-size: 1.1rem;
+      font-weight: 500;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .score-high { color: var(--accent); }
+    .score-mid { color: var(--warn); }
+    .score-low { color: var(--muted); }
+    .score-label {
+      font-size: 0.6rem;
+      color: var(--muted);
+      display: block;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .email-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+    .email-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.1s;
+    }
+    .email-header:hover { background: rgba(255,255,255,0.02); }
+    .email-subject { font-family: 'DM Mono', monospace; font-size: 0.82rem; color: var(--text); }
+    .email-meta { font-size: 0.72rem; color: var(--muted); display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+    .chevron { transition: transform 0.2s; color: var(--muted); }
+    .email-card.open .chevron { transform: rotate(180deg); }
+    .email-body { display: none; padding: 0 20px 20px; border-top: 1px solid var(--border); }
+    .email-card.open .email-body { display: block; }
+    .email-text { font-size: 0.83rem; line-height: 1.7; color: var(--text); white-space: pre-wrap; margin-top: 16px; }
+    .copy-btn {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.7rem;
+      padding: 6px 12px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+      margin-top: 12px;
+    }
+    .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .email-skipped { padding: 16px 20px; font-size: 0.8rem; color: var(--muted); font-style: italic; }
+    .tabs {
+      display: flex;
+      gap: 2px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .tab {
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      padding: 10px 16px;
+      cursor: pointer;
+      color: var(--muted);
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.15s, border-color 0.15s;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      background: none;
+      border-top: none;
+      border-left: none;
+      border-right: none;
+    }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+    @media (max-width: 600px) {
+      .form-grid { grid-template-columns: 1fr; }
+      .listing { grid-template-columns: 1fr; }
+      .score-badge { text-align: left; }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .fade-in { animation: fadeIn 0.3s ease forwards; }
+  </style>
+</head>
+<body>
+
+  <!-- ── Keyword particles canvas (behind everything) ── -->
+  <canvas id="particles-canvas"></canvas>
+
+  <!-- ── Full-screen loading overlay ── -->
+  <div id="loading-screen">
+    <div class="step-pipeline" id="step-pipeline">
+      <div class="step-node">
+        <div class="step-circle" id="step-cv">CV</div>
+        <div class="step-label" id="step-cv-label">extract</div>
+      </div>
+      <div class="step-connector" id="conn-1"></div>
+      <div class="step-node">
+        <div class="step-circle" id="step-search">🔍</div>
+        <div class="step-label" id="step-search-label">search</div>
+      </div>
+      <div class="step-connector" id="conn-2"></div>
+      <div class="step-node">
+        <div class="step-circle" id="step-rank">↑↓</div>
+        <div class="step-label" id="step-rank-label">rank</div>
+      </div>
+      <div class="step-connector" id="conn-3"></div>
+      <div class="step-node">
+        <div class="step-circle" id="step-email">✉</div>
+        <div class="step-label" id="step-email-label">emails</div>
+      </div>
+    </div>
+
+    <div id="swiss-map">
+      <!-- Switzerland outline as inline SVG path -->
+      <svg viewBox="0 0 340 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M48,80 L58,68 L72,65 L85,58 L100,55 L115,50 L130,48 L145,45 L158,42
+                 L172,40 L186,38 L200,40 L214,44 L226,50 L238,56 L248,64 L256,74
+                 L262,86 L266,98 L268,110 L265,122 L258,132 L248,140 L236,146
+                 L222,150 L208,154 L194,158 L180,162 L166,164 L152,162 L138,158
+                 L124,152 L110,144 L98,134 L88,122 L78,110 L66,100 L54,92 Z"
+          stroke="#2a2d35" stroke-width="1.5" fill="rgba(22,24,28,0.8)" />
+        <!-- Canton lines (simplified) -->
+        <path d="M158,42 L160,80 L200,40" stroke="#1e2026" stroke-width="0.8" />
+        <path d="M160,80 L200,120 L240,100" stroke="#1e2026" stroke-width="0.8" />
+        <path d="M160,80 L130,100 L110,144" stroke="#1e2026" stroke-width="0.8" />
+        <path d="M200,120 L180,162" stroke="#1e2026" stroke-width="0.8" />
+      </svg>
+      <!-- Dots injected by JS -->
+    </div>
+
+    <div class="loading-step" id="loading-step">Initializing...</div>
+    <div class="loading-detail" id="loading-detail">&nbsp;</div>
+  </div>
+
+  <!-- ── Main app ── -->
+  <div class="container">
+    <header>
+      <div class="logo">hansel</div>
+      <div class="tagline mono">autonomous job search · swiss market</div>
+    </header>
+
+    <div class="card" id="form-card">
+      <div class="card-title mono">01 — configure search</div>
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>CV FILE (PDF)</label>
+          <div class="drop-zone" id="drop-zone">
+            <input type="file" id="cv-file" accept=".pdf,.md,.txt" />
+            <div class="drop-zone-text">Drop your CV here or <span>browse</span></div>
+            <div class="drop-zone-filename" id="filename-display"></div>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>LOCATION</label>
+          <input type="text" id="location" value="Switzerland" />
+        </div>
+        <div class="form-group">
+          <label>SENIORITY</label>
+          <select id="seniority">
+            <option value="junior" selected>Junior</option>
+            <option value="mid">Mid</option>
+            <option value="senior">Senior</option>
+            <option value="lead">Lead</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>EMAILS (TOP N)</label>
+          <input type="number" id="emails-top-n" value="3" min="0" max="10" />
+        </div>
+        <div class="form-group" style="justify-content: flex-end; padding-bottom: 4px;">
+          <label>OPTIONS</label>
+          <div class="toggle-row">
+            <label class="toggle">
+              <input type="checkbox" id="generate-emails" checked />
+              <div class="toggle-track"></div>
+              <div class="toggle-thumb"></div>
+            </label>
+            <span class="toggle-label">Generate emails</span>
+          </div>
+        </div>
+      </div>
+      <button class="btn-run" id="run-btn" disabled>
+        <span>RUN PIPELINE</span>
+      </button>
+    </div>
+
+    <div class="card" id="progress-panel">
+      <div class="progress-header">
+        <div class="card-title mono" style="margin-bottom:0">02 — log</div>
+        <div class="spinner" id="spinner"></div>
+      </div>
+      <div class="progress-log" id="progress-log"></div>
+    </div>
+
+    <div id="results-panel">
+      <div class="tabs">
+        <button class="tab active" data-tab="listings">Listings</button>
+        <button class="tab" data-tab="emails">Emails</button>
+      </div>
+      <div class="results-meta mono" id="results-meta"></div>
+      <div class="tab-content active" id="tab-listings"></div>
+      <div class="tab-content" id="tab-emails"></div>
+    </div>
+  </div>
+
+  <script>
+    // ── DOM refs ──
+    const cvFile          = document.getElementById('cv-file');
+    const dropZone        = document.getElementById('drop-zone');
+    const filenameDisplay = document.getElementById('filename-display');
+    const locationInput   = document.getElementById('location');
+    const seniorityInput  = document.getElementById('seniority');
+    const emailsTopN      = document.getElementById('emails-top-n');
+    const generateEmails  = document.getElementById('generate-emails');
+    const runBtn          = document.getElementById('run-btn');
+    const progressPanel   = document.getElementById('progress-panel');
+    const progressLog     = document.getElementById('progress-log');
+    const spinner         = document.getElementById('spinner');
+    const resultsPanel    = document.getElementById('results-panel');
+    const resultsMeta     = document.getElementById('results-meta');
+    const tabListings     = document.getElementById('tab-listings');
+    const tabEmails       = document.getElementById('tab-emails');
+    const loadingScreen   = document.getElementById('loading-screen');
+    const loadingStep     = document.getElementById('loading-step');
+    const loadingDetail   = document.getElementById('loading-detail');
+    const swissMap        = document.getElementById('swiss-map');
+    const canvas          = document.getElementById('particles-canvas');
+    const ctx             = canvas.getContext('2d');
+
+    // ── Swiss city positions (% of SVG viewBox 340x220) ──
+    const SWISS_CITIES = [
+      { name: 'Zürich',   x: 0.56, y: 0.28 },
+      { name: 'Bern',     x: 0.40, y: 0.45 },
+      { name: 'Basel',    x: 0.38, y: 0.18 },
+      { name: 'Geneva',   x: 0.18, y: 0.68 },
+      { name: 'Lausanne', x: 0.26, y: 0.62 },
+      { name: 'Lucerne',  x: 0.52, y: 0.42 },
+      { name: 'Aarau',    x: 0.48, y: 0.30 },
+      { name: 'St.Gallen',x: 0.70, y: 0.25 },
+      { name: 'Zug',      x: 0.55, y: 0.38 },
+      { name: 'Winterthur',x:0.62, y: 0.24 },
+    ];
+
+    // ── Keyword particles ──
+    const KEYWORDS = [
+      'Python','LangChain','Ollama','FastAPI','PyTorch','MediaPipe',
+      'embeddings','LLM','Pydantic','asyncio','SQL','Docker',
+      'ML','NLP','RAG','ETL','CI/CD','REST','API','Git',
+      'pandas','numpy','scikit-learn','Streamlit','Qwen',
+    ];
+
+    let particles = [];
+    let particleAnimId = null;
+
+    function resizeCanvas() {
+      canvas.width  = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+
+    function spawnParticles() {
+      resizeCanvas();
+      particles = KEYWORDS.map(kw => ({
+        text: kw,
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        vx: (Math.random() - 0.5) * 0.4,
+        vy: (Math.random() - 0.5) * 0.4,
+        alpha: Math.random() * 0.3 + 0.1,
+        size: Math.random() * 4 + 9,
+      }));
+    }
+
+    function drawParticles() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      particles.forEach(p => {
+        ctx.font = `${p.size}px 'DM Mono', monospace`;
+        ctx.fillStyle = `rgba(200,240,96,${p.alpha})`;
+        ctx.fillText(p.text, p.x, p.y);
+        p.x += p.vx;
+        p.y += p.vy;
+        // Wrap around edges
+        if (p.x < -100) p.x = canvas.width + 50;
+        if (p.x > canvas.width + 100) p.x = -50;
+        if (p.y < -20) p.y = canvas.height + 10;
+        if (p.y > canvas.height + 20) p.y = -10;
+      });
+      particleAnimId = requestAnimationFrame(drawParticles);
+    }
+
+    function startParticles() {
+      spawnParticles();
+      canvas.classList.add('active');
+      drawParticles();
+    }
+
+    function stopParticles() {
+      canvas.classList.remove('active');
+      if (particleAnimId) cancelAnimationFrame(particleAnimId);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+
+    window.addEventListener('resize', () => {
+      if (canvas.classList.contains('active')) {
+        resizeCanvas();
+        spawnParticles();
+      }
+    });
+
+    // ── Map dots ──
+    let dotInterval = null;
+    let dotIndex = 0;
+    const mapDots = [];
+
+    function startMapDots() {
+      // Remove old dots
+      mapDots.forEach(d => d.remove());
+      mapDots.length = 0;
+      dotIndex = 0;
+
+      const mapRect = swissMap.getBoundingClientRect();
+      const mapW = swissMap.offsetWidth;
+      const mapH = swissMap.offsetHeight;
+
+      dotInterval = setInterval(() => {
+        if (dotIndex >= SWISS_CITIES.length) {
+          clearInterval(dotInterval);
+          return;
+        }
+        const city = SWISS_CITIES[dotIndex++];
+        const dot = document.createElement('div');
+        dot.className = 'map-dot';
+        dot.title = city.name;
+        dot.style.left = (city.x * 100) + '%';
+        dot.style.top  = (city.y * 100) + '%';
+        swissMap.appendChild(dot);
+        mapDots.push(dot);
+        // Trigger CSS transition
+        requestAnimationFrame(() => dot.classList.add('visible'));
+      }, 800);
+    }
+
+    function stopMapDots() {
+      clearInterval(dotInterval);
+    }
+
+    // ── Step pipeline ──
+    const STEP_MAP = {
+      'extract_cv':       'cv',
+      'generate_queries': 'search',
+      'search':           'search',
+      'rank':             'rank',
+      'generate_emails':  'email',
+      'complete':         'email',
+      'error':            null,
+    };
+
+    const STEP_ORDER = ['cv','search','rank','email'];
+    let currentStep = -1;
+
+    function advanceStep(stepKey) {
+      const target = STEP_MAP[stepKey];
+      if (!target) return;
+      const idx = STEP_ORDER.indexOf(target);
+      if (idx <= currentStep) return;
+
+      // Mark previous steps done
+      for (let i = 0; i < idx; i++) markStep(STEP_ORDER[i], 'done', i);
+      markStep(target, 'active', idx);
+      // Activate connector before this step
+      if (idx > 0) {
+        document.getElementById(`conn-${idx}`).classList.add('active');
+      }
+      currentStep = idx;
+    }
+
+    function markStep(name, state, idx) {
+      const circle = document.getElementById(`step-${name}`);
+      const label  = document.getElementById(`step-${name}-label`);
+      if (!circle) return;
+      circle.classList.remove('active','done');
+      circle.classList.add(state);
+      label.classList.toggle('active', state === 'active');
+    }
+
+    function resetSteps() {
+      currentStep = -1;
+      STEP_ORDER.forEach(s => {
+        const c = document.getElementById(`step-${s}`);
+        const l = document.getElementById(`step-${s}-label`);
+        if (c) { c.classList.remove('active','done'); }
+        if (l) { l.classList.remove('active'); }
+      });
+      ['conn-1','conn-2','conn-3'].forEach(id => {
+        document.getElementById(id).classList.remove('active');
+      });
+    }
+
+    // ── Show/hide loading screen ──
+    function showLoading() {
+      resetSteps();
+      loadingScreen.classList.add('active');
+      startParticles();
+      startMapDots();
+    }
+
+    function hideLoading() {
+      loadingScreen.classList.remove('active');
+      stopParticles();
+      stopMapDots();
+    }
+
+    // ── File handling ──
+    cvFile.addEventListener('change', () => {
+      if (cvFile.files[0]) {
+        filenameDisplay.textContent = cvFile.files[0].name;
+        runBtn.disabled = false;
+      }
+    });
+
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        cvFile.files = dt.files;
+        filenameDisplay.textContent = file.name;
+        runBtn.disabled = false;
+      }
+    });
+
+    // ── Tabs ──
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    // ── Progress log ──
+    function logLine(step, message, isError = false) {
+      const now = new Date().toLocaleTimeString('en-GB', { hour12: false });
+      const line = document.createElement('div');
+      line.className = 'log-line' + (isError ? ' log-error' : '');
+      line.innerHTML = `<span class="log-time">${now}</span><span class="log-step">${step}</span><span class="log-msg">${message}</span>`;
+      progressLog.appendChild(line);
+      progressLog.scrollTop = progressLog.scrollHeight;
+    }
+
+    // ── Render results ──
+    function scoreClass(score) {
+      if (score >= 0.75) return 'score-high';
+      if (score >= 0.55) return 'score-mid';
+      return 'score-low';
+    }
+
+    function renderListings(listings) {
+      tabListings.innerHTML = '';
+      if (!listings.length) {
+        tabListings.innerHTML = '<p style="color:var(--muted);font-size:.85rem">No listings returned.</p>';
+        return;
+      }
+      listings.forEach((l, i) => {
+        const tagsHtml = (l.tags || []).slice(0, 6).map(t => `<span class="tag">${t}</span>`).join('');
+        const rationaleHtml = l.rationale ? `<div class="listing-rationale">${l.rationale}</div>` : '';
+        const card = document.createElement('div');
+        card.className = 'listing fade-in';
+        card.style.animationDelay = `${i * 40}ms`;
+        card.innerHTML = `
+          <div>
+            <div class="listing-title"><a href="${l.url}" target="_blank" rel="noopener">${l.title}</a></div>
+            <div class="listing-meta"><span>🏢 ${l.company}</span><span>📍 ${l.location || '—'}</span></div>
+            ${tagsHtml ? `<div class="listing-tags">${tagsHtml}</div>` : ''}
+            ${rationaleHtml}
+          </div>
+          <div class="score-badge ${scoreClass(l.score)}">
+            ${(l.score * 100).toFixed(0)}<span class="score-label">score</span>
+          </div>`;
+        tabListings.appendChild(card);
+      });
+    }
+
+    function renderEmails(emails) {
+      tabEmails.innerHTML = '';
+      if (!emails.length) {
+        tabEmails.innerHTML = '<p style="color:var(--muted);font-size:.85rem">No emails generated.</p>';
+        return;
+      }
+      emails.forEach((e, i) => {
+        const card = document.createElement('div');
+        card.className = 'email-card fade-in';
+        card.style.animationDelay = `${i * 40}ms`;
+        if (e.skipped) {
+          card.innerHTML = `<div class="email-skipped">⚠ Skipped — ${e.reason}</div>`;
+        } else {
+          const safeBody = e.body.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          card.innerHTML = `
+            <div class="email-header" onclick="this.parentElement.classList.toggle('open')">
+              <div class="email-subject">${e.subject}</div>
+              <div class="email-meta">
+                <span>${e.word_count}w</span>
+                <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+              </div>
+            </div>
+            <div class="email-body">
+              <pre class="email-text">${safeBody}</pre>
+              <button class="copy-btn">COPY TO CLIPBOARD</button>
+            </div>`;
+          card.querySelector('.copy-btn').addEventListener('click', function() {
+            navigator.clipboard.writeText(e.body).then(() => {
+              this.textContent = 'COPIED ✓';
+              setTimeout(() => { this.textContent = 'COPY TO CLIPBOARD'; }, 2000);
+            });
+          });
+        }
+        tabEmails.appendChild(card);
+      });
+    }
+
+    // ── Run pipeline ──
+    runBtn.addEventListener('click', async () => {
+        window._stepDelay = 0;
+      if (!cvFile.files[0]) return;
+      runBtn.disabled = true;
+      progressLog.innerHTML = '';
+      tabListings.innerHTML = '';
+      tabEmails.innerHTML = '';
+      resultsMeta.textContent = '';
+      progressPanel.style.display = 'block';
+      resultsPanel.style.display = 'none';
+
+      showLoading();
+
+      const formData = new FormData();
+      formData.append('cv', cvFile.files[0]);
+      formData.append('location', locationInput.value || 'Switzerland');
+      formData.append('seniority', seniorityInput.value);
+      formData.append('generate_emails', generateEmails.checked);
+      formData.append('emails_top_n', emailsTopN.value);
+
+      try {
+        const response = await fetch('/api/run', { method: 'POST', body: formData });
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+          let eventType = null, dataLine = null;
+          for (const line of lines) {
+            if (line.startsWith('event: ')) { eventType = line.slice(7).trim(); }
+            else if (line.startsWith('data: ')) { dataLine = line.slice(6).trim(); }
+            else if (line === '' && eventType && dataLine) {
+              handleSSEEvent(eventType, JSON.parse(dataLine));
+              eventType = null; dataLine = null;
+            }
+          }
+        }
+      } catch (err) {
+        logLine('error', err.message, true);
+        hideLoading();
+      } finally {
+        runBtn.disabled = false;
+      }
+    });
+
+    function handleSSEEvent(type, data) {
+      if (type === 'progress') {
+        logLine(data.step, data.message);
+        loadingStep.textContent = data.step.replace(/_/g, ' ').toUpperCase();
+        loadingDetail.textContent = data.message;
+        _stepDelay = (_stepDelay || 0) + 300;
+        const d = _stepDelay;
+        setTimeout(() => advanceStep(data.step), d);
+      } else if (type === 'error') {
+        (data.errors || ['Unknown error']).forEach(e => logLine('error', e, true));
+        hideLoading();
+      } else if (type === 'result') {
+        resultsMeta.innerHTML = `Found <strong>${data.total_raw}</strong> raw → <strong>${data.total_ranked}</strong> ranked → showing top <strong>${data.listings.length}</strong>`;
+        renderListings(data.listings);
+        renderEmails(data.emails || []);
+        resultsPanel.style.display = 'block';
+      } else if (type === 'done') {
+        logLine('done', data.message);
+        hideLoading();
+        resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
+  </script>
+</body>
+</html>

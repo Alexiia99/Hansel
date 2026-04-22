@@ -1,6 +1,8 @@
 """Matcher module: scores and ranks job listings against a CV profile."""
 
 from hansel.matcher.embeddings import EmbeddingScorer, cv_to_text, listing_to_text
+from hansel.matcher.matcher import JobMatcher
+from hansel.matcher.reranker import LLMReranker
 from hansel.matcher.schemas import MatchScore, ScoredListing, SeniorityMode
 from hansel.matcher.seniority_filter import (
     detect_title_seniority,
@@ -11,6 +13,8 @@ from hansel.matcher.seniority_filter import (
 
 __all__ = [
     "EmbeddingScorer",
+    "JobMatcher",
+    "LLMReranker",
     "MatchScore",
     "ScoredListing",
     "SeniorityMode",

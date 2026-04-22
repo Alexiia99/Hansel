@@ -14,6 +14,8 @@ class JobSource(str, Enum):
     JOOBLE = "jooble"
     ARBEITNOW = "arbeitnow"
     JOBS_CH = "jobs_ch"
+    SWISSDEVJOBS = "swissdevjobs"
+
 
 
 class JobListing(BaseModel):
