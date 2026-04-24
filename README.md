@@ -1,3 +1,70 @@
+<div align="center">
+
+# 🌼 Hansel
+
+**Autonomous job search agent for the Swiss market**
+
+*Reads your CV · Finds real jobs · Ranks by fit · Drafts personalized emails*
+
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Tests](https://img.shields.io/badge/tests-142%20passing-brightgreen)
+![Local](https://img.shields.io/badge/runs-100%25%20local-orange)
+
+</div>
+
+---
+
+Hansel is an autonomous job search agent that reads your CV, finds matching 
+jobs on Swiss job boards, scores them against your profile, and drafts 
+personalized application emails — all running locally on your laptop with 
+[Ollama](https://ollama.com/), no paid APIs, no data leaving your machine.
+
+## ✨ What it does
+
+1. **Extracts your profile** from a PDF or Markdown CV (regex for contact 
+   data, LLM for semantic understanding).
+2. **Generates diverse search queries** calibrated to your seniority level.
+3. **Searches in parallel** across three Swiss job sources:
+   - [Adzuna Switzerland](https://www.adzuna.ch) — general board, API
+   - [Arbeitnow](https://www.arbeitnow.com) — remote-friendly, free API
+   - [SwissDevJobs](https://swissdevjobs.ch) — tech-specialist, CHF salaries
+4. **Ranks every listing** with a retrieve-and-rerank pipeline: embeddings 
+   for fast retrieval, LLM for precise scoring with per-listing rationale.
+5. **Drafts personalized emails** with a two-step generation (draft + 
+   self-critique) and three-layer hallucination defense.
+6. **Web UI** with real-time progress streaming, animated Switzerland map, 
+   and keyword particles — or use the CLI.
+
+## 🏗️ Architecture
+
+```
+CV (PDF/MD)
+    │
+    ▼
+CVExtractor ──────────────────────────────────────────────────┐
+    │ CVProfile                                                │
+    ▼                                                         │
+QueryGenerator                                                │
+    │ SearchStrategy (3-5 queries)                            │
+    ▼                                                         │
+JobSearchOrchestrator ──► AdzunaAdapter                       │
+    │                ──► ArbeitnowAdapter                     │
+    │                ──► SwissDevJobsAdapter                  │
+    │ deduplicated JobListings                                 │
+    ▼                                                         │
+JobMatcher                                                    │
+    │ ──► EmbeddingScorer (nomic-embed-text)                  │
+    │ ──► LLMReranker (Qwen 2.5 7B) ◄────────────────────────┘
+    │ ScoredListings (ranked)
+    ▼
+EmailGenerator
+    │ ──► draft → critique → validator → fact-check
+    │ GeneratedEmail | EmailGenerationSkipped
+    ▼
+HanselResult
+```
+
 Design principles:
 
 - **Adapter pattern** for job sources — adding a new board means one class.
@@ -21,42 +88,62 @@ Every non-trivial choice is documented as an Architecture Decision Record:
 | [006](docs/decisions/006-embedding-retrieval-strategy.md) | Embeddings for retrieval, LLM for ranking |
 | [007](docs/decisions/007-score-normalization.md) | Normalize scores across rerank tiers |
 | [008](docs/decisions/008-email-hallucination-defense.md) | Three-layer hallucination defense |
+| [009](docs/decisions/009-swissdevjobs-adapter.md) | SwissDevJobs over jobs.ch |
 
-## 🏵️ Quickstart
+## 🚀 Quickstart
 
-**Prerequisites:**
-- Python 3.11+
-- [uv](https://github.com/astral-sh/uv) (recommended) or pip
-- [Ollama](https://ollama.com/) running locally
-- Adzuna API credentials (free tier, 250 calls/month): https://developer.adzuna.com
-
-**Setup:**
+### Option A — Docker (recommended)
 
 ```bash
 git clone https://github.com/Alexiia99/Hansel.git
 cd Hansel
 
-# Install dependencies
+# Configure credentials
+cp .env.example .env
+# Edit .env: fill in ADZUNA_APP_ID and ADZUNA_APP_KEY
+
+# Start Hansel + Ollama
+docker compose up -d
+
+# Pull models (one-time, ~5 GB)
+docker exec hansel-ollama ollama pull qwen2.5:7b-instruct
+docker exec hansel-ollama ollama pull nomic-embed-text
+
+# Open the web UI
+open http://localhost:8000
+```
+
+### Option B — Local
+
+**Prerequisites:** Python 3.11+, [uv](https://github.com/astral-sh/uv), 
+[Ollama](https://ollama.com/) running locally, Adzuna API credentials 
+([free tier](https://developer.adzuna.com), 250 calls/month).
+
+```bash
+git clone https://github.com/Alexiia99/Hansel.git
+cd Hansel
+
 uv sync
 
-# Pull required Ollama models (one-time, ~5 GB total)
+# Pull required models (one-time, ~5 GB total)
 ollama pull qwen2.5:7b-instruct
 ollama pull nomic-embed-text
 
-# Configure API credentials
 cp .env.example .env
-# Edit .env and fill in ADZUNA_APP_ID and ADZUNA_APP_KEY
+# Edit .env: fill in ADZUNA_APP_ID and ADZUNA_APP_KEY
 
-# Run the agent
+# Web UI
+uvicorn src.hansel.api.main:app --reload --env-file .env
+# → open http://localhost:8000
+
+# Or CLI
 uv run python -m hansel \
     --cv tests/fixtures/cv_junior_tech.md \
     --location Switzerland \
     --emails-top-n 3
 ```
 
-## 🌸 Using the Python API
-
-For notebooks or custom workflows:
+## 🌸 Python API
 
 ```python
 from hansel import HanselAgent
@@ -83,14 +170,13 @@ for email in result.emails:
     print(email.body)
 ```
 
-Need step-by-step access (e.g., to display ranked listings before 
-generating emails)?
+Step-by-step access (e.g. show rankings before generating emails):
 
 ```python
 profile = await agent.extract_cv("my_cv.pdf", Seniority.JUNIOR)
 listings = await agent.search(profile, "Switzerland")
-ranked = await agent.rank(profile, listings)
-emails = await agent.generate_emails(profile, ranked[:5])
+ranked  = await agent.rank(profile, listings)
+emails  = await agent.generate_emails(profile, ranked[:5])
 ```
 
 ## 🌻 Testing
@@ -99,39 +185,35 @@ emails = await agent.generate_emails(profile, ranked[:5])
 uv run pytest tests/ -v
 ```
 
-67 unit tests covering the CV regex parser, job source adapters, the 
-orchestrator (fan-out, dedup, resilience, parallelism), and HTTP mocking 
-with `respx`.
-
-## 🌼 Roadmap
-
-Shipped:
-
-- Hybrid CV extraction
-- LLM-generated diverse search queries
-- Multi-source orchestration with dedup
-- Retrieve-and-rerank matcher
-- Personalized email generation with hallucination defense
-- CLI + Python API
-
-Next:
-
-- `jobs.ch` adapter (largest Swiss job board, scraping + rate-limit respect)
-- FastAPI backend + lightweight web UI
-- Docker Compose for reproducible setup
-- Matcher and email-generator unit tests
-- Application tracker (SQLite + history)
+142 unit tests covering CV regex parsing, all three job source adapters, 
+orchestrator fan-out/dedup/resilience, seniority filter heuristics, 
+email hallucination validator, and HTTP mocking with `respx`.
 
 ## 🏵️ Caveats
 
-- **Emails are drafts, not auto-send**. Always review before sending. 
+- **Emails are drafts, not auto-send.** Always review before sending. 
   Local 7B LLMs can produce subtle stylistic quirks. The hallucination 
-  defense catches factual fabrications, but tone and phrasing benefit 
-  from a human pass.
-- **First ranking run takes ~5 min on CPU**. The LLM reranks 10 listings 
-  sequentially at ~25 s each. On GPU the rerank is mostly free.
-- **Adzuna free tier is 250 calls/month**. Each run uses 4–5. Enough for 
+  defense catches factual fabrications, but tone benefits from a human pass.
+- **First ranking run takes ~5 min on CPU.** The LLM reranks 10 listings 
+  sequentially (~25 s each). On GPU this is mostly free.
+- **Adzuna free tier: 250 calls/month.** Each run uses 4–5. Enough for 
   personal use, not for teams.
+- **SwissDevJobs API is undocumented.** The `/api/jobsLight` endpoint may 
+  change without notice.
+
+## 🌼 Roadmap
+
+- [x] Hybrid CV extraction
+- [x] LLM-generated diverse search queries  
+- [x] Multi-source orchestration with dedup (Adzuna + Arbeitnow + SwissDevJobs)
+- [x] Retrieve-and-rerank matcher
+- [x] Personalized email generation with hallucination defense
+- [x] CLI + Python API
+- [x] FastAPI backend + web UI with SSE progress streaming
+- [x] Docker Compose
+- [x] 142 unit tests
+- [ ] Application tracker (SQLite)
+- [ ] jobs.ch adapter
 
 ## 🌸 License
 
@@ -143,50 +225,48 @@ MIT — see [LICENSE](LICENSE).
 
 ## 🌻 En español
 
-Hansel es un agente autónomo de búsqueda de empleo. Lee tu CV, busca 
-ofertas reales en portales suizos, las puntúa contra tu perfil y te 
-redacta emails de aplicación personalizados. Todo corre localmente en tu 
-portátil, sin APIs externas de pago.
+Hansel es un agente autónomo de búsqueda de empleo para el mercado suizo. 
+Lee tu CV, busca ofertas reales en portales suizos, las puntúa contra tu 
+perfil y redacta emails de aplicación personalizados. Todo corre 
+localmente en tu portátil, sin APIs externas de pago, sin datos fuera 
+de tu máquina.
 
 **Por qué existe:** buscar trabajo en un país extranjero implica leer 
 decenas de ofertas, evaluarlas mentalmente una a una, y escribir emails 
 adaptados que acaban sonando todos igual. Hansel automatiza las partes 
 repetitivas sin inventarse tu experiencia.
 
-**Cómo funciona, en corto:**
+**Cómo funciona:**
 
 1. Extrae tu perfil del CV (regex para datos de contacto, LLM para 
    comprensión semántica).
 2. Genera consultas diversas calibradas a tu seniority.
-3. Busca en múltiples portales en paralelo (Adzuna Suiza, Arbeitnow) 
-   con rate limiting, reintentos exponenciales, cache y deduplicación.
-4. Puntúa cada oferta con una pipeline *retrieve-and-rerank*: embeddings 
-   locales para filtrado rápido, LLM para ranking preciso con 
+3. Busca en paralelo en tres fuentes suizas: Adzuna, Arbeitnow y 
+   SwissDevJobs (con salarios en CHF).
+4. Puntúa cada oferta con embeddings locales + reranking LLM con 
    justificación por oferta.
-5. Redacta emails personalizados con generación en dos pasos (borrador 
-   + autocrítica) y tres capas defensivas contra alucinaciones del LLM.
+5. Redacta emails personalizados con tres capas defensivas contra 
+   alucinaciones del LLM.
+6. UI web con progreso en tiempo real, mapa animado de Suiza y 
+   partículas de keywords.
 
-**Stack técnico:** Python 3.11, LangChain, Ollama, Qwen 2.5 7B, 
-`nomic-embed-text`, Pydantic, httpx, tenacity, cachetools.
+**Stack:** Python 3.11, LangChain, Ollama, Qwen 2.5 7B, 
+`nomic-embed-text`, FastAPI, Pydantic, httpx, Docker.
 
-**Todo razonado:** cada decisión no trivial del diseño está documentada 
-en [docs/decisions/](docs/decisions/) como un Architecture Decision 
-Record. Ahí están los ocho momentos en los que algo no funcionaba y 
-cómo lo solucioné.
-
-**Uso:**
+**Todo razonado:** cada decisión de diseño está documentada en 
+[docs/decisions/](docs/decisions/) como ADR. 9 decisiones, todas 
+motivadas por problemas reales encontrados durante el desarrollo.
 
 ```bash
-git clone https://github.com/Alexiia99/Hansel.git
-cd Hansel
-uv sync
-ollama pull qwen2.5:7b-instruct
-ollama pull nomic-embed-text
-cp .env.example .env  # rellena las credenciales de Adzuna
-uv run python -m hansel --cv tests/fixtures/cv_junior_tech.md --location Switzerland
-```
+# Docker (recomendado)
+docker compose up -d
+docker exec hansel-ollama ollama pull qwen2.5:7b-instruct
+docker exec hansel-ollama ollama pull nomic-embed-text
+# Abre http://localhost:8000
 
-Para más detalles, mira la sección en inglés arriba.
+# O local
+uv sync && uvicorn src.hansel.api.main:app --reload --env-file .env
+```
 
 ---
 
