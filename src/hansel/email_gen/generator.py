@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
+from hansel.llm import make_chat_ollama
 
 from hansel.cv.schemas import CVProfile
 from hansel.email_gen.schemas import (
@@ -265,7 +265,7 @@ class FactChecker:
             model: Ollama model identifier.
             temperature: 0.0 for strict, deterministic fact-checking.
         """
-        self._llm = ChatOllama(model=model, temperature=temperature)
+        self._llm = make_chat_ollama(model=model, temperature=temperature)
         self._chain = _FACT_CHECK_PROMPT | self._llm.with_structured_output(FactCheckResult)
     
     async def check(
@@ -331,7 +331,7 @@ class EmailGenerator:
                 Adds ~30s per email but catches subtle hallucinations that
                 the regex validator misses.
         """
-        self._llm = ChatOllama(model=model, temperature=temperature)
+        self._llm = make_chat_ollama(model=model, temperature=temperature)
         self._draft_chain = _DRAFT_PROMPT | self._llm.with_structured_output(EmailDraft)
         self._critique_chain = _CRITIQUE_PROMPT | self._llm.with_structured_output(EmailCritique)
         self._min_match_score = min_match_score

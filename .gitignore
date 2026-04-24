@@ -208,3 +208,6 @@ __marimo__/
 
 # Personal data
 data/
+
+
+docker-compose.override.yml

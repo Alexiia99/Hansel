@@ -1,0 +1,41 @@
+# docker-compose.yml
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: hansel-ollama
+    volumes:
+      # Persistir modelos descargados entre reinicios del contenedor.
+      # Sin esto, cada docker compose up descargaría los modelos de nuevo.
+      - ollama-models:/root/.ollama
+    ports:
+      - "11434:11434"
+    restart: unless-stopped
+    # Si tienes GPU NVIDIA descomenta esto:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  hansel:
+    build: .
+    container_name: hansel-app
+    ports:
+      - "8000:8000"
+    environment:
+      # Apuntar al contenedor de Ollama en vez de localhost
+      - OLLAMA_HOST=http://ollama:11434
+      - ADZUNA_APP_ID=${ADZUNA_APP_ID}
+      - ADZUNA_APP_KEY=${ADZUNA_APP_KEY}
+    volumes:
+      # Montar frontend como volumen para que cambios en HTML no requieran rebuild
+      - ./frontend:/app/frontend:ro
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+volumes:
+  ollama-models:

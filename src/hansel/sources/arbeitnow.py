@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any
 
 import httpx
-from bs4 import BeautifulSoup
+import re
 
 from hansel.sources.base import JobSourceAdapter
 from hansel.sources.schemas import JobListing, JobSource
@@ -28,11 +28,9 @@ def _strip_html(html: str) -> str:
     """Extract plain text from an HTML string."""
     if not html:
         return ""
-    soup = BeautifulSoup(html, "html.parser")
-    text = soup.get_text(separator=" ", strip=True)
-    # Collapse excessive whitespace
+    # Remove HTML tags, then collapse whitespace
+    text = re.sub(r"<[^>]+>", " ", html)
     return " ".join(text.split())
-
 
 def _matches_keywords(item: dict[str, Any], keywords: str) -> bool:
     """Check if a raw Arbeitnow item matches the keywords (client-side filter)."""

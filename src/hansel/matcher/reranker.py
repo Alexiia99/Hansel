@@ -6,7 +6,7 @@ import asyncio
 import logging
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
+from hansel.llm import make_chat_ollama
 
 from hansel.cv.schemas import CVProfile
 from hansel.matcher.schemas import MatchScore
@@ -65,7 +65,7 @@ class LLMReranker:
             max_concurrency: Parallel LLM calls. On CPU, keep at 1 — more 
                 does not speed up and can starve the machine. On GPU, 2-4.
         """
-        self._llm = ChatOllama(model=model, temperature=temperature)
+        self._llm = make_chat_ollama(model=model, temperature=temperature)
         self._chain = _SCORING_PROMPT | self._llm.with_structured_output(MatchScore)
         self._semaphore = asyncio.Semaphore(max_concurrency)
     

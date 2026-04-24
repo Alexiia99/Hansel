@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
+from hansel.llm import make_chat_ollama
 
 from hansel.cv.schemas import CVProfile
 from hansel.search.schemas import SearchStrategy
@@ -58,7 +58,7 @@ class QueryGenerator:
     """Generate diverse job search queries from a CV profile."""
     
     def __init__(self, model: str = "qwen2.5:7b-instruct", temperature: float = 0.0):
-        self.llm = ChatOllama(model=model, temperature=temperature)
+        self.llm = make_chat_ollama(model=model, temperature=temperature)
         self._chain = _QUERY_PROMPT | self.llm.with_structured_output(SearchStrategy)
     
     def generate(

@@ -6,7 +6,7 @@ import logging
 from typing import Sequence
 
 import numpy as np
-from langchain_ollama import OllamaEmbeddings
+from hansel.llm import make_ollama_embeddings
 
 from hansel.cv.schemas import CVProfile
 from hansel.sources.schemas import JobListing
@@ -70,7 +70,7 @@ class EmbeddingScorer:
     """
     
     def __init__(self, model: str = "nomic-embed-text") -> None:
-        self._embeddings = OllamaEmbeddings(model=model)
+        self._embeddings = make_ollama_embeddings(model=model)
     
     async def score_listings(
         self,

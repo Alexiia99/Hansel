@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pdfplumber
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
+from hansel.llm import make_chat_ollama
 
 from hansel.cv.regex_parser import extract_contact
 from hansel.cv.schemas import CVProfile, CVProfileSemantic, Experience, Seniority
@@ -111,7 +111,7 @@ class CVExtractor:
     """Extracts structured CV data using a hybrid regex + LLM pipeline."""
     
     def __init__(self, model: str = "qwen2.5:7b-instruct", temperature: float = 0.0):
-        self.llm = ChatOllama(model=model, temperature=temperature)
+        self.llm = make_chat_ollama(model=model, temperature=temperature)
         self._chain = _EXTRACTION_PROMPT | self.llm.with_structured_output(CVProfileSemantic)
     
     def extract(self, cv_text: str, seniority: Seniority = Seniority.JUNIOR) -> CVProfile:
