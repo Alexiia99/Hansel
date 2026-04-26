@@ -20,7 +20,7 @@ jobs on Swiss job boards, scores them against your profile, and drafts
 personalized application emails — all running locally on your laptop with 
 [Ollama](https://ollama.com/), no paid APIs, no data leaving your machine.
 
-## ✨ What it does
+## 🌸 What it does
 
 1. **Extracts your profile** from a PDF or Markdown CV (regex for contact 
    data, LLM for semantic understanding).
@@ -36,7 +36,7 @@ personalized application emails — all running locally on your laptop with
 6. **Web UI** with real-time progress streaming, animated Switzerland map, 
    and keyword particles — or use the CLI.
 
-## 🏗️ Architecture
+## 🌸 Architecture
 
 ```
 CV (PDF/MD)
@@ -74,7 +74,7 @@ Design principles:
   email generation fails, the rest proceed.
 - **Local-first** — no external LLM APIs. Runs on CPU.
 
-## 🌻 Technical decisions
+## 🌸 Technical decisions
 
 Every non-trivial choice is documented as an Architecture Decision Record:
 
@@ -90,7 +90,7 @@ Every non-trivial choice is documented as an Architecture Decision Record:
 | [008](docs/decisions/008-email-hallucination-defense.md) | Three-layer hallucination defense |
 | [009](docs/decisions/009-swissdevjobs-adapter.md) | SwissDevJobs over jobs.ch |
 
-## 🚀 Quickstart
+## 🌸 Quickstart
 
 ### Option A — Docker (recommended)
 
@@ -179,7 +179,7 @@ ranked  = await agent.rank(profile, listings)
 emails  = await agent.generate_emails(profile, ranked[:5])
 ```
 
-## 🌻 Testing
+## 🌸 Testing
 
 ```bash
 uv run pytest tests/ -v
@@ -189,7 +189,7 @@ uv run pytest tests/ -v
 orchestrator fan-out/dedup/resilience, seniority filter heuristics, 
 email hallucination validator, and HTTP mocking with `respx`.
 
-## 🏵️ Caveats
+## 🌸 Caveats
 
 - **Emails are drafts, not auto-send.** Always review before sending. 
   Local 7B LLMs can produce subtle stylistic quirks. The hallucination 
@@ -201,7 +201,7 @@ email hallucination validator, and HTTP mocking with `respx`.
 - **SwissDevJobs API is undocumented.** The `/api/jobsLight` endpoint may 
   change without notice.
 
-## 🌼 Roadmap
+## 🌸 Roadmap
 
 - [x] Hybrid CV extraction
 - [x] LLM-generated diverse search queries  
@@ -212,8 +212,8 @@ email hallucination validator, and HTTP mocking with `respx`.
 - [x] FastAPI backend + web UI with SSE progress streaming
 - [x] Docker Compose
 - [x] 142 unit tests
-- [ ] Application tracker (SQLite)
-- [ ] jobs.ch adapter
+- [x] Application tracker (SQLite)
+
 
 ## 🌸 License
 
